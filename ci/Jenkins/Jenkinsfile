@@ -56,7 +56,7 @@ pipeline {
                 withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                     sh '''
                         git config user.email "walkerulrich.tchabo@gmail.com"
-                        git config user.name "ulrichwalker"
+                        git config user.name "walkerulrich"
                         sed -i "s/tag:.*/tag: '${build_version}'/" helm/app/values.yaml
                         git add helm/app/values.yaml
                         git commit -m "Update deployment image to version ${build_version}"
