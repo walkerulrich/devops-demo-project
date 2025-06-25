@@ -1,147 +1,69 @@
 pipeline {
     agent any
-    
+
     parameters {
-        string(
-            name: 'build_version', 
-            defaultValue: 'v1.0', 
-            description: 'Build version to use for Docker image'
-        )
+        string(name: 'build_version', defaultValue: 'v1.0', description: 'Build version to use for Docker image')
     }
-    
-    environment {
-        SONAR_URL = "http://localhost:9000"
-        DOCKER_IMAGE = "ynsenhub/demo-java-app:${params.build_version}"
-        GIT_REPO_NAME = "devops-demo-project"
-        GIT_USER_NAME = "walkerulrich"
-        GIT_EMAIL = "walkerulrich.tchabo@gmail.com"
-    }
-    
+
     stages {
         stage('Checkout') {
             steps {
-                echo "🔄 Checking out source code..."
                 git branch: 'main', url: 'https://github.com/walkerulrich/devops-demo-project'
-                sh 'ls -ltr'
             }
         }
-        
+
         stage('Build and Test') {
             steps {
-                echo "🏗️ Building and testing the application..."
-                sh '''
-                    cd demo-java-app
-                    echo "Current directory: $(pwd)"
-                    echo "Maven version: $(mvn -version)"
-                    mvn clean package -DskipTests=false
-                '''
-            }
-            post {
-                always {
-                    // Archive test results
-                    publishTestResults testResultsPattern: 'demo-java-app/target/surefire-reports/*.xml'
-                    // Archive artifacts
-                    archiveArtifacts artifacts: 'demo-java-app/target/*.jar', fingerprint: true
-                }
+                sh 'ls -ltr'
+                // build the project and create a JAR file
+                sh 'cd demo-java-app && mvn clean package'
             }
         }
-        
+
         stage('Static Code Analysis') {
+            environment {
+                SONAR_URL = "http://sonarqube:9000"
+            }
             steps {
-                echo "🔍 Running SonarQube analysis..."
-                withCredentials([usernamePassword(credentialsId: 'sonarqube', usernameVariable: 'SONAR_USERNAME', passwordVariable: 'SONAR_PASSWORD')]) {
-                    sh '''
-                        cd demo-java-app
-                        mvn sonar:sonar \
-                            -Dsonar.login=$SONAR_USERNAME \
-                            -Dsonar.password=$SONAR_PASSWORD \
-                            -Dsonar.host.url=$SONAR_URL \
-                            -Dsonar.projectKey=demo-java-app \
-                            -Dsonar.projectName="Demo Java App"
-                    '''
+                withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
+                    sh 'cd demo-java-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=$SONAR_URL'
                 }
             }
         }
-        
+
         stage('Build and Push Docker Image') {
+            environment {
+                DOCKER_IMAGE = "ynsenhub/demo-java-app:${build_version}"
+                REGISTRY_CREDENTIALS = credentials('dockerhub')
+            }
             steps {
-                echo "🐳 Building and pushing Docker image..."
                 script {
-                    // Build Docker image
-                    sh """
-                        cd demo-java-app
-                        echo "Building Docker image: ${DOCKER_IMAGE}"
-                        docker build -t ${DOCKER_IMAGE} .
-                        docker tag ${DOCKER_IMAGE} ynsenhub/demo-java-app:latest
-                    """
-                    
-                    // Push to Docker Hub
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh '''
-                            echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-                            docker push ${DOCKER_IMAGE}
-                            docker push ynsenhub/demo-java-app:latest
-                            docker logout
-                        '''
+                    sh "cd demo-java-app && docker build -t ${DOCKER_IMAGE} ."
+                    def dockerImage = docker.image("${DOCKER_IMAGE}")
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
+                        dockerImage.push()
                     }
                 }
             }
-            post {
-                always {
-                    // Clean up local images
-                    sh '''
-                        docker rmi ${DOCKER_IMAGE} || true
-                        docker rmi ynsenhub/demo-java-app:latest || true
-                    '''
-                }
-            }
         }
-        
+
         stage('Update Deployment File') {
+            environment {
+                GIT_REPO_NAME = "devops-demo-project"
+                GIT_USER_NAME = "ulrichwalker"
+            }
             steps {
-                echo "📝 Updating Helm values file..."
-                withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
+                withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                     sh '''
-                        # Configure Git
-                        git config user.email "${GIT_EMAIL}"
-                        git config user.name "${GIT_USER_NAME}"
-                        
-                        # Check current values
-                        echo "Current values.yaml content:"
-                        cat helm/app/values.yaml
-                        
-                        # Update the image tag
+                        git config user.email "walkerulrich.tchabo@gmail.com"
+                        git config user.name "ulrichwalker"
                         sed -i "s/tag:.*/tag: '${build_version}'/" helm/app/values.yaml
-                        
-                        # Verify the change
-                        echo "Updated values.yaml content:"
-                        cat helm/app/values.yaml
-                        
-                        # Commit and push changes
                         git add helm/app/values.yaml
-                        git commit -m "🚀 Update deployment image to version ${build_version} [skip ci]"
-                        git push https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
+                        git commit -m "Update deployment image to version ${build_version}"
+                        git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
                     '''
                 }
             }
-        }
-    }
-    
-    post {
-        always {
-            echo "🧹 Cleaning up workspace..."
-            cleanWs()
-        }
-        success {
-            echo "✅ Pipeline completed successfully!"
-            // You can add notifications here (Slack, Email, etc.)
-        }
-        failure {
-            echo "❌ Pipeline failed!"
-            // You can add failure notifications here
-        }
-        unstable {
-            echo "⚠️ Pipeline completed with warnings!"
         }
     }
 }
