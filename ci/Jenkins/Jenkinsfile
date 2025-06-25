@@ -49,11 +49,12 @@ pipeline {
         stage('Static Code Analysis') {
             steps {
                 echo "🔍 Running SonarQube analysis..."
-                withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
+                withCredentials([usernamePassword(credentialsId: 'sonarqube', usernameVariable: 'SONAR_USERNAME', passwordVariable: 'SONAR_PASSWORD')]) {
                     sh '''
                         cd demo-java-app
                         mvn sonar:sonar \
-                            -Dsonar.login=$SONAR_AUTH_TOKEN \
+                            -Dsonar.login=$SONAR_USERNAME \
+                            -Dsonar.password=$SONAR_PASSWORD \
                             -Dsonar.host.url=$SONAR_URL \
                             -Dsonar.projectKey=demo-java-app \
                             -Dsonar.projectName="Demo Java App"
@@ -99,7 +100,7 @@ pipeline {
         stage('Update Deployment File') {
             steps {
                 echo "📝 Updating Helm values file..."
-                withCredentials([string(credentialsId: 'github_Devops', variable: 'GITHUB_TOKEN')]) {
+                withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
                     sh '''
                         # Configure Git
                         git config user.email "${GIT_EMAIL}"
@@ -119,7 +120,7 @@ pipeline {
                         # Commit and push changes
                         git add helm/app/values.yaml
                         git commit -m "🚀 Update deployment image to version ${build_version} [skip ci]"
-                        git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
+                        git push https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
                     '''
                 }
             }
