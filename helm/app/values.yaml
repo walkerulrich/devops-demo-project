@@ -5,7 +5,8 @@
 replicaCount: 2
 
 image:
-  repository: walkerulrich/demo-java-app
+  githubID: walkerulrich
+  repository: demo-java-app
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: 'v1.0'
